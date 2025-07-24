@@ -353,6 +353,21 @@ def TakeImages(Id, name, email=None):
         
         cam = cv2.VideoCapture(0)
         
+        # Check if camera is available (important for deployment)
+        if not cam.isOpened():
+            st.error("❌ Camera not available! This might be due to:")
+            st.info("🔍 **Possible reasons:**")
+            st.write("• No camera connected to the system")
+            st.write("• Camera is being used by another application")
+            st.write("• Running in a cloud environment without camera access")
+            st.write("• Camera permissions not granted")
+            
+            st.info("💡 **Solutions:**")
+            st.write("• For local testing: Ensure camera is connected and not in use")
+            st.write("• For deployment: Use mobile app or upload images instead")
+            st.write("• Check browser permissions for camera access")
+            return False
+        
         # Set camera properties for better quality
         cam.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)    # Set width to 1280
         cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)    # Set height to 720
@@ -449,6 +464,113 @@ def TakeImages(Id, name, email=None):
         st.error("Name must contain only alphabets")
         return False
 
+# Function to handle uploaded images for registration
+def upload_and_save_images(student_id, name, email, uploaded_files):
+    """Process uploaded images for student registration"""
+    try:
+        check_haarcascadefile()
+        assure_path_exists("StudentDetails/")
+        assure_path_exists("TrainingImage/")
+        
+        # Check if user already exists
+        if os.path.isfile("StudentDetails/StudentDetails.csv"):
+            df = pd.read_csv("StudentDetails/StudentDetails.csv")
+            if any(df['ID'].astype(str) == str(student_id)):
+                st.error(f"ID {student_id} already exists in the system!")
+                return False
+        
+        # Get serial number
+        serial = 1
+        if os.path.isfile("StudentDetails/StudentDetails.csv"):
+            with open("StudentDetails/StudentDetails.csv", 'r') as csvFile1:
+                reader1 = csv.reader(csvFile1)
+                rows = list(reader1)
+                serial = len(rows) // 2 if len(rows) > 1 else 1
+        else:
+            columns = ['SERIAL NO.', '', 'ID', '', 'NAME', 'EMAIL']
+            with open("StudentDetails/StudentDetails.csv", 'a+') as csvFile1:
+                writer = csv.writer(csvFile1)
+                writer.writerow(columns)
+        
+        detector = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
+        saved_count = 0
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        for i, uploaded_file in enumerate(uploaded_files):
+            # Read uploaded image
+            image = Image.open(uploaded_file)
+            image_np = np.array(image)
+            
+            # Convert to BGR for OpenCV
+            if len(image_np.shape) == 3:
+                image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+            else:
+                image_bgr = image_np
+            
+            gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+            
+            # Apply histogram equalization
+            gray = cv2.equalizeHist(gray)
+            
+            # Detect faces
+            faces = detector.detectMultiScale(gray, 1.3, 5, minSize=(30, 30))
+            
+            if len(faces) > 0:
+                # Take the largest face
+                (x, y, w, h) = max(faces, key=lambda face: face[2] * face[3])
+                
+                if w > 50 and h > 50:  # Minimum face size
+                    # Extract and enhance face region
+                    face_roi = gray[y:y + h, x:x + w]
+                    face_roi = cv2.resize(face_roi, (200, 200))
+                    
+                    saved_count += 1
+                    filename = f"TrainingImage/{name}.{serial}.{student_id}.{saved_count}.jpg"
+                    cv2.imwrite(filename, face_roi)
+                    
+                    progress_bar.progress(i / len(uploaded_files))
+                    status_text.text(f"Processed: {i+1}/{len(uploaded_files)} - Faces found: {saved_count}")
+                else:
+                    st.warning(f"Face too small in image {i+1}")
+            else:
+                st.warning(f"No face detected in image {i+1}")
+        
+        if saved_count >= 10:
+            # Save student details
+            try:
+                df = pd.read_csv('StudentDetails/StudentDetails.csv')
+                if 'EMAIL' not in df.columns:
+                    df['EMAIL'] = ''
+                
+                new_row = pd.DataFrame({
+                    'SERIAL NO.': [serial],
+                    '': [''],
+                    'ID': [student_id],
+                    '.1': [''],
+                    'NAME': [name],
+                    'EMAIL': [email if email else '']
+                })
+                
+                df = pd.concat([df, new_row], ignore_index=True)
+                df.to_csv('StudentDetails/StudentDetails.csv', index=False)
+            except:
+                # Fallback method
+                with open('StudentDetails/StudentDetails.csv', 'a+') as csvFile:
+                    writer = csv.writer(csvFile)
+                    writer.writerow([serial, '', student_id, '', name, email if email else ''])
+            
+            st.success(f"Successfully processed {saved_count} face images for {name} (ID: {student_id})")
+            return True
+        else:
+            st.error(f"Only {saved_count} valid face images found. Need at least 10 for good accuracy.")
+            return False
+            
+    except Exception as e:
+        st.error(f"Error processing images: {str(e)}")
+        return False
+
 # Enhanced attendance tracking with real-time detection
 def TrackImages():
     check_haarcascadefile()
@@ -472,6 +594,21 @@ def TrackImages():
         return
 
     cam = cv2.VideoCapture(0)
+    
+    # Check if camera is available (important for deployment)
+    if not cam.isOpened():
+        st.error("❌ Camera not available! This might be due to:")
+        st.info("🔍 **Possible reasons:**")
+        st.write("• No camera connected to the system")
+        st.write("• Camera is being used by another application")
+        st.write("• Running in a cloud environment without camera access")
+        st.write("• Camera permissions not granted")
+        
+        st.info("💡 **Solutions:**")
+        st.write("• For local testing: Ensure camera is connected and not in use")
+        st.write("• For deployment: Use mobile app or upload images instead")
+        st.write("• Check browser permissions for camera access")
+        return
     
     # Set camera properties for better quality during attendance
     cam.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)    # Set width to 1280
@@ -590,6 +727,124 @@ def TrackImages():
     else:
         st.warning("No attendance was recorded.")
 
+# Function to mark attendance using uploaded photo
+def mark_attendance_with_photo(uploaded_photo, user_id, user_name):
+    """Mark attendance using an uploaded photo"""
+    try:
+        check_haarcascadefile()
+        assure_path_exists("Attendance/")
+        
+        # Check if trainer file exists
+        if not os.path.exists("TrainingImageLabel/Trainner.yml"):
+            st.error("No trained model found! Please contact admin to train the model first.")
+            return False
+        
+        # Load the recognizer
+        recognizer = cv2.face.LBPHFaceRecognizer_create()
+        recognizer.read("TrainingImageLabel/Trainner.yml")
+        faceCascade = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
+        
+        # Load student details
+        try:
+            df = pd.read_csv("StudentDetails/StudentDetails.csv")
+        except FileNotFoundError:
+            st.error("No student details found!")
+            return False
+        
+        # Process uploaded image
+        image = Image.open(uploaded_photo)
+        image_np = np.array(image)
+        
+        # Convert to BGR for OpenCV
+        if len(image_np.shape) == 3:
+            image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+        else:
+            image_bgr = image_np
+        
+        gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+        gray = cv2.equalizeHist(gray)
+        
+        # Detect faces
+        faces = faceCascade.detectMultiScale(gray, 1.2, 5, minSize=(50, 50))
+        
+        if len(faces) == 0:
+            st.error("No face detected in the uploaded photo. Please upload a clearer image.")
+            return False
+        
+        # Take the largest face
+        (x, y, w, h) = max(faces, key=lambda face: face[2] * face[3])
+        
+        if w > 80 and h > 80:
+            # Extract face region
+            face_roi = gray[y:y + h, x:x + w]
+            face_roi = cv2.resize(face_roi, (200, 200))
+            
+            # Predict
+            serial, conf = recognizer.predict(face_roi)
+            
+            if conf < 70:  # Confidence threshold
+                try:
+                    recognized_name = df.loc[df['SERIAL NO.'] == serial]['NAME'].values[0]
+                    recognized_id = df.loc[df['SERIAL NO.'] == serial]['ID'].values[0]
+                    
+                    # Check if the recognized person matches the logged-in user
+                    if str(recognized_id) == str(user_id):
+                        # Mark attendance
+                        ts = time.time()
+                        date = datetime.datetime.fromtimestamp(ts).strftime('%d-%m-%Y')
+                        timeStamp = datetime.datetime.fromtimestamp(ts).strftime('%H:%M:%S')
+                        
+                        # Check if already marked today
+                        filename = f"Attendance/Attendance_{date}.csv"
+                        already_marked = False
+                        
+                        if os.path.exists(filename):
+                            existing_df = pd.read_csv(filename)
+                            if any(existing_df['ID'].astype(str) == str(user_id)):
+                                st.warning("Attendance already marked for today!")
+                                return True
+                        
+                        # Save attendance
+                        attendance_data = [[user_id, user_name, date, timeStamp]]
+                        df_attendance = pd.DataFrame(attendance_data, columns=['ID', 'Name', 'Date', 'Time'])
+                        
+                        if os.path.exists(filename):
+                            existing_df = pd.read_csv(filename)
+                            combined_df = pd.concat([existing_df, df_attendance])
+                            combined_df.to_csv(filename, index=False)
+                        else:
+                            df_attendance.to_csv(filename, index=False)
+                        
+                        # Show recognized image with markings
+                        image_with_box = image_bgr.copy()
+                        cv2.rectangle(image_with_box, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                        cv2.putText(image_with_box, f"{user_name} (ID: {user_id})", (x, y-10), 
+                                  cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                        cv2.putText(image_with_box, f"Confidence: {int(100-conf)}%", (x, y + h + 25), 
+                                  cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                        
+                        # Convert back to RGB for display
+                        image_rgb = cv2.cvtColor(image_with_box, cv2.COLOR_BGR2RGB)
+                        st.image(image_rgb, caption="Attendance Verified", use_column_width=True)
+                        
+                        return True
+                    else:
+                        st.error(f"Face recognized as {recognized_name} (ID: {recognized_id}), but you are logged in as {user_name} (ID: {user_id})")
+                        return False
+                except:
+                    st.error("Error processing recognition data")
+                    return False
+            else:
+                st.error(f"Face not recognized with sufficient confidence (confidence: {int(100-conf)}%)")
+                return False
+        else:
+            st.error("Face in image is too small. Please upload a closer photo.")
+            return False
+            
+    except Exception as e:
+        st.error(f"Error processing photo: {str(e)}")
+        return False
+
 # Function to get user's attendance history
 def get_user_attendance(user_id):
     """Get attendance history for a specific user"""
@@ -703,6 +958,10 @@ def admin_panel():
     
     with tab1:
         st.subheader("Register New Student")
+        
+        # Check if we're in a deployment environment
+        st.info("📱 **Deployment Note:** If camera doesn't work, use the file upload option below")
+        
         col1, col2, col3 = st.columns(3)
         with col1:
             student_id = st.text_input("Student ID")
@@ -711,12 +970,35 @@ def admin_panel():
         with col3:
             student_email = st.text_input("Student Email (Optional)", placeholder="student@example.com")
         
-        if st.button("📸 Capture Images", type="primary"):
+        # Camera option
+        if st.button("📸 Capture Images (Camera)", type="primary"):
             if student_id and student_name:
                 if TakeImages(student_id, student_name, student_email):
                     st.info("Student registered successfully! Don't forget to train the model.")
             else:
                 st.error("Please enter both Student ID and Name")
+        
+        st.markdown("---")
+        st.subheader("📤 Alternative: Upload Images")
+        st.info("Upload 10-20 clear photos of the person's face for training")
+        
+        uploaded_files = st.file_uploader(
+            "Choose face images",
+            type=['jpg', 'jpeg', 'png'],
+            accept_multiple_files=True,
+            help="Upload 10-20 clear face photos of the student"
+        )
+        
+        if st.button("📁 Register with Uploaded Images", type="secondary"):
+            if student_id and student_name and uploaded_files:
+                if len(uploaded_files) >= 10:
+                    if upload_and_save_images(student_id, student_name, student_email, uploaded_files):
+                        st.success("Student registered successfully with uploaded images!")
+                        st.info("Don't forget to train the model.")
+                else:
+                    st.error("Please upload at least 10 images for better accuracy")
+            else:
+                st.error("Please enter student details and upload images")
     
     with tab2:
         st.subheader("Train Face Recognition Model")
@@ -844,10 +1126,41 @@ def user_panel():
     
     with tab1:
         st.subheader("Mark Your Attendance")
-        st.info("Click the button below to start the camera and mark your attendance.")
         
-        if st.button("📸 Start Attendance Camera", type="primary"):
+        # Camera option
+        st.info("📱 **Note:** If camera doesn't work (common in cloud deployments), use the image upload option below")
+        
+        # Try Streamlit camera input first (works better in deployment)
+        st.subheader("📷 Option 1: Browser Camera")
+        camera_photo = st.camera_input("Take a photo for attendance")
+        
+        if camera_photo and st.button("✅ Mark Attendance with Camera Photo", type="primary"):
+            if mark_attendance_with_photo(camera_photo, st.session_state.current_user_id, st.session_state.current_user_name):
+                st.success(f"✅ Attendance marked successfully for {st.session_state.current_user_name}!")
+            else:
+                st.error("❌ Could not verify your identity. Please try again.")
+        
+        st.markdown("---")
+        st.subheader("🎥 Option 2: OpenCV Camera (Local Only)")
+        
+        if st.button("📸 Start Attendance Camera", type="secondary"):
             TrackImages()
+        
+        st.markdown("---")
+        st.subheader("📤 Alternative: Upload Your Photo")
+        st.info("Upload a clear photo of your face to mark attendance")
+        
+        uploaded_photo = st.file_uploader(
+            "Upload your photo for attendance",
+            type=['jpg', 'jpeg', 'png'],
+            help="Upload a clear photo of your face"
+        )
+        
+        if uploaded_photo and st.button("✅ Mark Attendance with Photo", type="secondary"):
+            if mark_attendance_with_photo(uploaded_photo, st.session_state.current_user_id, st.session_state.current_user_name):
+                st.success(f"✅ Attendance marked successfully for {st.session_state.current_user_name}!")
+            else:
+                st.error("❌ Could not verify your identity. Please try with a clearer photo.")
     
     with tab2:
         st.subheader("My Attendance History")
