@@ -1,0 +1,4 @@
+sender_email=kalyanakash234@gmail.com
+sender_password=ufmr znjq mtgu hilg
+smtp_server=smtp.gmail.com
+smtp_port=587
